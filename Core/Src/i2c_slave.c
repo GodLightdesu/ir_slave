@@ -1,8 +1,6 @@
 #include "i2c_slave.h"
 #include "stm32g4xx_hal_i2c.h"
 
-#define SLAVE_RX_BUF_SIZE 32    // 8 * 4 bytes
-#define SLAVE_TX_BUF_SIZE 32    // 8 * 4 bytes
 static uint8_t Rxbuffer[SLAVE_RX_BUF_SIZE] = {0};
 static uint8_t Txbuffer[SLAVE_TX_BUF_SIZE] = {0};
 
@@ -12,10 +10,21 @@ static I2C_HandleTypeDef* m_hi2c;
 void I2C_Slave_Init(I2C_HandleTypeDef *hi2c) {
   m_hi2c = hi2c;
   HAL_I2C_EnableListen_IT(m_hi2c);
+}
 
-  // 預先準備tx資料
-  for (uint8_t i = 0; i < SLAVE_TX_BUF_SIZE; i++) {
-    Txbuffer[i] = i;
+void updateTxBuffer(uint8_t *data, uint16_t size) {
+  if (!data) {
+    return; // 防止空指標
+  }
+  if (size > SLAVE_TX_BUF_SIZE) {
+    size = SLAVE_TX_BUF_SIZE; // 限制大小以防止溢出
+  }
+  memcpy(Txbuffer, data, size);
+}
+
+void setTxBufferByte(uint16_t index, uint8_t value) {
+  if (index < SLAVE_TX_BUF_SIZE) {
+    Txbuffer[index] = value;
   }
 }
 
@@ -76,8 +85,9 @@ void HAL_I2C_SlaveTxCpltCallback(I2C_HandleTypeDef *hi2c) {
 void HAL_I2C_ErrorCallback(I2C_HandleTypeDef *hi2c) {
   if (hi2c->Instance != m_hi2c->Instance) { return; }
 
-  // I2C 錯誤處理
-  // 可能的錯誤：HAL_I2C_ERROR_BERR, HAL_I2C_ERROR_ARLO, HAL_I2C_ERROR_AF 等
+  // 清除錯誤狀態和緩衝區
+  memset(Rxbuffer, 0, SLAVE_RX_BUF_SIZE);
+  memset(Txbuffer, 0, SLAVE_TX_BUF_SIZE);
   
   // 重新啟用 Listen 模式
   HAL_I2C_EnableListen_IT(m_hi2c);

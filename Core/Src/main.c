@@ -26,6 +26,7 @@
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 #include "i2c_slave.h"
+#include "data.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -116,14 +117,13 @@ int main(void)
   HAL_Init();
 
   /* USER CODE BEGIN Init */
-
+  // setBoot0();  // 只在第一次燒錄時需要，之後可以註解掉
   /* USER CODE END Init */
 
   /* Configure the system clock */
   SystemClock_Config();
 
   /* USER CODE BEGIN SysInit */
-
   /* USER CODE END SysInit */
 
   /* Initialize all configured peripherals */
@@ -134,13 +134,39 @@ int main(void)
   MX_ADC2_Init();
   MX_ADC5_Init();
   /* USER CODE BEGIN 2 */
-  setBoot0();
 
+  // 初始化I2C（這個通常沒問題）
   I2C_Slave_Init(&hi2c1);
 
-  // test all led on
-  HAL_GPIO_WritePin(GPIOA, LED1_Pin|LED3_Pin, GPIO_PIN_SET);
-  HAL_GPIO_WritePin(GPIOB, LED4_Pin|LED5_Pin|LED7_Pin|LED6_Pin, GPIO_PIN_SET);
+  // 簡化的ADC初始化
+  HAL_GPIO_WritePin(GPIOA, LED1_Pin, GPIO_PIN_SET);  // 啟動指示
+  
+  // 暫時禁用DMA中斷進行測試
+  HAL_NVIC_DisableIRQ(DMA1_Channel1_IRQn);
+  HAL_NVIC_DisableIRQ(DMA1_Channel2_IRQn);
+  HAL_NVIC_DisableIRQ(DMA1_Channel3_IRQn);
+  HAL_NVIC_DisableIRQ(ADC1_2_IRQn);
+  HAL_NVIC_DisableIRQ(ADC5_IRQn);
+  
+  // 校準所有ADC
+  HAL_ADCEx_Calibration_Start(&hadc1, ADC_SINGLE_ENDED);
+  HAL_ADCEx_Calibration_Start(&hadc2, ADC_SINGLE_ENDED);
+  HAL_ADCEx_Calibration_Start(&hadc5, ADC_SINGLE_ENDED);
+  
+  // ADC1 DMA啟動
+  HAL_ADC_Start_DMA(&hadc1, (uint32_t*)adc1_value, 4);
+  HAL_GPIO_WritePin(GPIOB, LED4_Pin, GPIO_PIN_SET);
+  
+  // ADC2 DMA啟動
+  HAL_ADC_Start_DMA(&hadc2, (uint32_t*)adc2_value, 3);
+  HAL_GPIO_WritePin(GPIOB, LED5_Pin, GPIO_PIN_SET);
+  
+  // ADC5 DMA啟動
+  HAL_ADC_Start_DMA(&hadc5, (uint32_t*)adc5_value, 1);
+  HAL_GPIO_WritePin(GPIOB, LED6_Pin, GPIO_PIN_SET);
+
+  // 系統就緒
+  HAL_GPIO_WritePin(GPIOB, LED7_Pin, GPIO_PIN_SET);
   
   /* USER CODE END 2 */
 
@@ -148,6 +174,13 @@ int main(void)
   /* USER CODE BEGIN WHILE */
   while (1)
   {
+    // 處理8通道ADC數據
+    dataProcess();
+    updateTxBuffer(voltBuffer, VOLT_BUFFER_SIZE);
+    
+    // 運行指示
+    HAL_GPIO_TogglePin(GPIOA, LED1_Pin);
+    HAL_Delay(100);
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
