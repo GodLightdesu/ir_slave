@@ -41,29 +41,28 @@ void dataSave() {
 // Process data to remove ambient light effect (max - min algorithm)
 void dataProcess() {
   // 移除環境光影響的最大值-最小值算法
+  voltBuffer[0] = (uint8_t)(adc1_value[0] & 0xFF);       // Vref LSB
+  voltBuffer[1] = (uint8_t)((adc1_value[0] >> 8) & 0xFF); // Vref MSB
+  static const uint16_t *address[] = {
+    NULL,
+    adc1_value + 1,
+    adc1_value + 2,
+    adc1_value + 3,
+    adc2_value + 0,
+    adc2_value + 1,
+    adc2_value + 2,
+    adc5_value + 0
+  };
   for (int i = 1; i < EYE_NUM + 1; i++) {
     uint16_t maxVal = 0;
     uint16_t minVal = 0xFFFF;
-
-    uint16_t *pBuffer = NULL;
-    int index = 0;
-    if (1 <= i && i <= 3) {
-      pBuffer = adc1_value;
-      index = i;
-    } else if (4 <= i && i <= 6) {
-      pBuffer = adc2_value;
-      index = i - 4;
-    } else if (7 <= i && i <= 7) {
-      pBuffer = adc5_value;
-      index = 0;
-    }
 
     __HAL_TIM_SET_COUNTER(&htim6, 0);
     const uint16_t start = __HAL_TIM_GET_COUNTER(&htim6);
     while (__HAL_TIM_GET_COUNTER(&htim6) - start < 833) {
       // 等待833微秒週期結束
       // const uint16_t sample = (uint16_t)(voltBuffer[i * 2] | (voltBuffer[i * 2 + 1] << 8));
-      const uint16_t sample = pBuffer[index];
+      const uint16_t sample = (*address[i]);
       if (sample > maxVal) {
         maxVal = sample;
       }
