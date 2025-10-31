@@ -2,6 +2,7 @@
 #define DATA_H
 
 #define VOLT_BUFFER_SIZE 16 // (1 Vref + 7 ir) * 2 bytes
+#define EYE_NUM 7
 
 #include "adc.h"
 #include <string.h>
@@ -13,6 +14,8 @@ extern uint16_t adc5_value[1];  // ch1
 
 // 函數宣告
 void adcInit(void);
-void dataProcess(void);
+void dataSave();
+void dataProcess(uint8_t sampling_times);
+void arrangeData();
 
 #endif /* DATA_H */

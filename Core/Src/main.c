@@ -175,12 +175,14 @@ int main(void)
   while (1)
   {
     // 處理8通道ADC數據
-    dataProcess();
+    dataSave();
+    // Process data to remove ambient light effect (max - min algorithm)
+    dataProcess(10);
     updateTxBuffer(voltBuffer, VOLT_BUFFER_SIZE);
     
     // 運行指示
     HAL_GPIO_TogglePin(GPIOA, LED1_Pin);
-    HAL_Delay(100);
+    HAL_Delay(10);
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
