@@ -21,6 +21,7 @@
 #include "adc.h"
 #include "dma.h"
 #include "i2c.h"
+#include "tim.h"
 #include "gpio.h"
 
 /* Private includes ----------------------------------------------------------*/
@@ -131,6 +132,7 @@ int main(void)
   MX_DMA_Init();
   MX_I2C1_Init();
   MX_ADC1_Init();
+  MX_TIM6_Init();
   MX_ADC2_Init();
   MX_ADC5_Init();
   /* USER CODE BEGIN 2 */
@@ -145,25 +147,12 @@ int main(void)
   HAL_NVIC_DisableIRQ(DMA1_Channel1_IRQn);
   HAL_NVIC_DisableIRQ(DMA1_Channel2_IRQn);
   HAL_NVIC_DisableIRQ(DMA1_Channel3_IRQn);
-  HAL_NVIC_DisableIRQ(ADC1_2_IRQn);
-  HAL_NVIC_DisableIRQ(ADC5_IRQn);
-  
-  // 校準所有ADC
-  HAL_ADCEx_Calibration_Start(&hadc1, ADC_SINGLE_ENDED);
-  HAL_ADCEx_Calibration_Start(&hadc2, ADC_SINGLE_ENDED);
-  HAL_ADCEx_Calibration_Start(&hadc5, ADC_SINGLE_ENDED);
-  
-  // ADC1 DMA啟動
-  HAL_ADC_Start_DMA(&hadc1, (uint32_t*)adc1_value, 4);
-  HAL_GPIO_WritePin(GPIOB, LED4_Pin, GPIO_PIN_SET);
-  
-  // ADC2 DMA啟動
-  HAL_ADC_Start_DMA(&hadc2, (uint32_t*)adc2_value, 3);
-  HAL_GPIO_WritePin(GPIOB, LED5_Pin, GPIO_PIN_SET);
-  
-  // ADC5 DMA啟動
-  HAL_ADC_Start_DMA(&hadc5, (uint32_t*)adc5_value, 1);
-  HAL_GPIO_WritePin(GPIOB, LED6_Pin, GPIO_PIN_SET);
+  // HAL_NVIC_DisableIRQ(ADC1_2_IRQn);
+  // HAL_NVIC_DisableIRQ(ADC5_IRQn);
+
+  // 初始化ADC
+  adcInit();
+  HAL_TIM_Base_Start(&htim6);  // 啟動定時器6
 
   // 系統就緒
   HAL_GPIO_WritePin(GPIOB, LED7_Pin, GPIO_PIN_SET);
@@ -172,12 +161,10 @@ int main(void)
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
-  while (1)
-  {
-    // 處理8通道ADC數據
-    dataSave();
-    // Process data to remove ambient light effect (max - min algorithm)
-    dataProcess(10);
+  while (1) {
+    // dataSave();
+    // arrangeData();
+    dataProcess();
     updateTxBuffer(voltBuffer, VOLT_BUFFER_SIZE);
     
     // 運行指示
@@ -237,7 +224,11 @@ void SystemClock_Config(void)
 }
 
 /* USER CODE BEGIN 4 */
-
+// void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef* hadc) {
+//   // 這個回調函數在ADC轉換完成時被呼叫
+//   // 可以在這裡處理ADC數據或設定旗標
+//   HAL_GPIO_WritePin(GPIOB, LED3_Pin, GPIO_PIN_SET);
+// }
 /* USER CODE END 4 */
 
 /**
@@ -249,8 +240,15 @@ void Error_Handler(void)
   /* USER CODE BEGIN Error_Handler_Debug */
   /* User can add his own implementation to report the HAL error return state */
   __disable_irq();
-  while (1)
-  {
+  while (1) {
+    HAL_GPIO_WritePin(GPIOB, LED5_Pin, GPIO_PIN_SET);
+    HAL_Delay(100);
+    HAL_GPIO_WritePin(GPIOB, LED5_Pin, GPIO_PIN_RESET);
+    HAL_Delay(100);
+    HAL_GPIO_WritePin(GPIOB, LED5_Pin, GPIO_PIN_SET);
+    HAL_Delay(100);
+    HAL_GPIO_WritePin(GPIOB, LED5_Pin, GPIO_PIN_RESET);
+    HAL_Delay(100);
   }
   /* USER CODE END Error_Handler_Debug */
 }

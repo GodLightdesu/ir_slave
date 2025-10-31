@@ -1,86 +1,82 @@
 #include "data.h"
-
-#define MAX_SAMPLES 10  // Maximum sampling buffer
+#include "stm32g4xx_hal.h"
+#include "stm32g4xx_hal_adc.h"
 
 uint8_t voltBuffer[VOLT_BUFFER_SIZE] = {0};
-uint16_t adc1_value[4] = {0};  // ADC1: 4 channels
-uint16_t adc2_value[3] = {0};  // ADC2: 3 channels
-uint16_t adc5_value[1] = {0};  // ADC5: 1 channel
 
-// Multi-sampling buffers
-static uint16_t SampleBuffer[MAX_SAMPLES][EYE_NUM + 1] = {0};
-static uint8_t SampleIndex = 0;
-static uint8_t SampleCount = 0;
+uint16_t adc1_value[4] = {0};  // ADC1: Vref, ch2, ch1, ch5
+uint16_t adc2_value[3] = {0};  // ADC2: ch3, ch4, ch15
+uint16_t adc5_value[1] = {0};  // ADC5: ch1
+
+void adcInit() {
+  // 校準所有ADC
+  HAL_ADCEx_Calibration_Start(&hadc1, ADC_SINGLE_ENDED);
+  HAL_ADCEx_Calibration_Start(&hadc2, ADC_SINGLE_ENDED);
+  HAL_ADCEx_Calibration_Start(&hadc5, ADC_SINGLE_ENDED);
+  
+  // ADC1 DMA啟動
+  HAL_ADC_Start_DMA(&hadc1, (uint32_t*)adc1_value, 4);
+  HAL_GPIO_WritePin(GPIOB, LED4_Pin, GPIO_PIN_SET);
+
+  // ADC2 DMA啟動
+  HAL_ADC_Start_DMA(&hadc2, (uint32_t*)adc2_value, 3);
+  HAL_GPIO_WritePin(GPIOB, LED5_Pin, GPIO_PIN_SET);
+  
+  // ADC5 DMA啟動
+  HAL_ADC_Start_DMA(&hadc5, (uint32_t*)adc5_value, 1);
+  HAL_GPIO_WritePin(GPIOB, LED6_Pin, GPIO_PIN_SET);
+}
 
 void dataSave() {
-  // 禁用中斷以確保資料一致性
-  __disable_irq();
+  // __disable_irq();
 
   // 簡單的DMA數據複製 (8通道完整系統)
   memcpy(&voltBuffer[0], adc1_value, 8);   // ADC1: channels 0-3
   memcpy(&voltBuffer[8], adc2_value, 6);   // ADC2: channels 4-6
   memcpy(&voltBuffer[14], adc5_value, 2);  // ADC5: channel 7
 
-  __enable_irq();
+  // __enable_irq();
 }
 
-void dataProcess(uint8_t sampling_times) {
-  // ==================== Step 1: Validate Parameters ====================
-  if (sampling_times > MAX_SAMPLES) {
-    sampling_times = MAX_SAMPLES;  // Limit to buffer size
-  }
-  if (sampling_times == 0) {
-    return;  // Nothing to process
-  }
-  
-  // ==================== Step 2: Store Current Sample ====================  
-  // Copy 7 sensor values from ProcessBuffer to SampleBuffer (skip Vref at bytes 0-1)
-  for (int sensor = 0; sensor < EYE_NUM; sensor++) {
-    int byte_pos = (sensor + 1) * 2;  // Skip Vref (bytes 0-1), each sensor is 2 bytes
-    uint8_t lsb = voltBuffer[byte_pos];
-    uint8_t msb = voltBuffer[byte_pos + 1];
-    SampleBuffer[SampleIndex][sensor] = (msb << 8) | lsb;  // Combine to 16-bit
-  }
-  
-  // ==================== Step 3: Check Sample Collection Status ====================  
-  if (SampleCount < sampling_times) {
-    // Not enough samples yet - accumulate and wait
-    SampleCount++;
-    SampleIndex = (SampleIndex + 1) % sampling_times;  // Move to next position
-    return;  // Exit early - no processing yet
-  }
-  
-  // ==================== Step 4: Find Global Minimum (Ambient Light) ====================
-  uint16_t global_min = 0xFFFF;  // Start with max value
-  
-  // Scan all samples of all sensors to find the minimum value (ambient light baseline)
-  for (int sensor = 0; sensor < EYE_NUM; sensor++) {
-    for (int sample = 0; sample < sampling_times; sample++) {
-      uint16_t value = SampleBuffer[sample][sensor];
-      if (value < global_min) {
-        global_min = value;
+// Process data to remove ambient light effect (max - min algorithm)
+void dataProcess() {
+  // 移除環境光影響的最大值-最小值算法
+  for (int i = 1; i < EYE_NUM + 1; i++) {
+    uint16_t maxVal = 0;
+    uint16_t minVal = 0xFFFF;
+
+    uint16_t *pBuffer = NULL;
+    int index = 0;
+    if (1 <= i && i <= 3) {
+      pBuffer = adc1_value;
+      index = i;
+    } else if (4 <= i && i <= 6) {
+      pBuffer = adc2_value;
+      index = i - 4;
+    } else if (7 <= i && i <= 7) {
+      pBuffer = adc5_value;
+      index = 0;
+    }
+
+    __HAL_TIM_SET_COUNTER(&htim6, 0);
+    const uint16_t start = __HAL_TIM_GET_COUNTER(&htim6);
+    while (__HAL_TIM_GET_COUNTER(&htim6) - start < 833) {
+      // 等待833微秒週期結束
+      // const uint16_t sample = (uint16_t)(voltBuffer[i * 2] | (voltBuffer[i * 2 + 1] << 8));
+      const uint16_t sample = pBuffer[index];
+      if (sample > maxVal) {
+        maxVal = sample;
+      }
+      if (sample < minVal) {
+        minVal = sample;
       }
     }
-  }
-  
-  // ==================== Step 5: Process Latest Data & Write Back ====================
-  // Use SampleIndex because that's where we just wrote the latest sample
-  for (int sensor = 0; sensor < EYE_NUM; sensor++) {
-    // Get latest reading for this sensor
-    uint16_t latest_value = SampleBuffer[SampleIndex][sensor];
-    
-    // Remove ambient light (subtract global minimum)
-    uint16_t processed_value = (latest_value > global_min) ? (latest_value - global_min) : 0;
-    
-    // Write back to ProcessBuffer in little-endian format
-    int byte_pos = (sensor + 1) * 2;  // Preserve Vref at bytes 0-1
-    voltBuffer[byte_pos]     = processed_value & 0xFF;        // LSB
-    voltBuffer[byte_pos + 1] = (processed_value >> 8) & 0xFF; // MSB
+    const uint16_t processedValue = maxVal - minVal;
+    voltBuffer[i * 2]     = (uint8_t)(processedValue & 0xFF);       // LSB
+    voltBuffer[i * 2 + 1] = (uint8_t)((processedValue >> 8) & 0xFF); // MSB
+    __HAL_TIM_SET_COUNTER(&htim6, 0); // 重置計數器
   }
   arrangeData();
-  
-  // ==================== Step 6: Update Index for Next Write ====================
-  SampleIndex = (SampleIndex + 1) % sampling_times;  // Circular buffer
 }
 
 /*
